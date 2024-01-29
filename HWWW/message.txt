@@ -1,0 +1,174 @@
+
+function y = hw2
+clear 
+clc
+
+try
+    dogImg = imread('dog.jpg');
+catch err
+    errorMessage = sprintf('can not read image');
+    error(errorMessage);
+end
+
+% show original Image
+figure(1);
+imshow(dogImg);
+% Get size of image
+sizeofimg = size(dogImg);
+MAXr = sizeofimg(1); % max row
+MAXc = sizeofimg(2); % max column
+
+% Subsample Cb and Cr using -> 4:2:0 and display both (from previouse HW)
+ycbcrImage = rgb2ycbcr(dogImg);
+y = ycbcrImage(:,:,1);
+cb = ycbcrImage(:,:,2);
+cr = ycbcrImage(:,:,3);
+
+cb(:,2:2:end) = [];
+cb(2:2:end,:) = [];
+cr(:,2:2:end) = [];
+cr(2:2:end,:) = [];
+
+% 1) A: Compute the 8x8 block DCT transform coefficients of the luminance and 
+% chrominance components of the image
+dct = @dct2;
+DCTy = blkproc(y, [8 8], dct);
+DCTy = fix(DCTy);
+
+DCTcb = blkproc(cb, [8 8], dct);
+DCTcb = fix(DCTcb);
+
+DCTcr = blkproc(cr, [8 8], dct);
+DCTcr = fix(DCTcr);
+
+figure(2);
+imshow(DCTy);
+
+
+% 1) A: Display the DCT coefficient matrix as well as image of the DCT 
+% transformed image blocks of the first 2 blocks in the 6th row (of blocks) from top 
+% for the luminance component. 
+figure(3);
+subplot(1,2,1), subimage(DCTy(41:48, 1:8)), title('6th row (1)')
+subplot(1,2,2), subimage(DCTy(41:48, 9:16)), title('6th row (2)')
+row6_1 = DCTy(41:48, 1:8);
+row6_2 = DCTy(41:48, 9:16);
+
+% 1) B: Quantize  the  DCT  image  by  using  the  JPEG  luminance  and  chrominance  quantizer  
+% matrix from the lecture notes.  
+
+y_quant_matrix = [
+    16  11  10  16  24  40  51  61;
+    12  12  14  19  26  58  60  55;
+    14  13  16  24  40  57  69  56;
+    14  17  22  29  51  87  89  62;
+    18  22  37  56  68 109 103  77;
+    24  35  55  64  81 104 113  92;
+    49  64  78  87 108 121 120 101;
+    72  92  95  98 112 100 103  99
+    ];
+cr_quant_matrix = [
+    17 18 24 47 99 99 99 99;
+    18 21 26 66 99 99 99 99;
+    24 26 56 99 99 99 99 99;
+    47 66 99 99 99 99 99 99;
+    99 99 99 99 99 99 99 99;
+    99 99 99 99 99 99 99 99;
+    99 99 99 99 99 99 99 99;
+    99 99 99 99 99 99 99 99;
+    ];
+
+quantize_y = @(block_struct) ...
+    round(block_struct.data ./ y_quant_matrix);
+quantize_cbcr = @(block_struct) ...
+    round(block_struct.data ./ cr_quant_matrix);
+
+dequantize_y  = @(block_struct) ...
+    round(block_struct.data .* y_quant_matrix);
+dequantize_cbcr = @(block_struct) ...
+    round(block_struct.data .* cr_quant_matrix);
+
+
+quantY = blockproc(DCTy, [8 8], quantize_y);
+quantCb = blockproc(DCTcb, [8 8], quantize_cbcr);
+quantCr = blockproc(DCTcr, [8 8], quantize_cbcr);
+
+% 1) B: Report the following output only for the first 2 blocks in the 6th row from top of 
+% the luminance component: (a) DC DCT coefficient; (b) Zigzag scanned AC DCT 
+% coefficients.
+
+    % a:
+    row6_1coefficient = quantY(25, 1)
+    row6_2coefficient = quantY(25, 9)
+
+    % b: Zigzag 
+    row6_1zigzag = zigzag(quantY(41:48, 1:8))
+    row6_2zigzag = zigzag(quantY(41:48, 9:16))
+
+% 1) C: Compute the inverse Quantized images obtained in Step
+invquantY = blockproc(quantY, [8 8], dequantize_y);
+invquantCb = blockproc(quantCb, [8 8], dequantize_cbcr);
+invquantCr = blockproc(quantCr, [8 8], dequantize_cbcr);
+
+% 1) D: Reconstruct the image by computing Inverse DCT coefficients
+
+pIDCT = @idct2;
+invDCT_y = blkproc(invquantY, [8 8], pIDCT);
+invDCT_y = fix(invDCT_y);
+invDCT_cb = blkproc(invquantCb, [8 8], pIDCT);
+invDCT_cb = fix(invDCT_cb);
+invDCT_cr = blkproc(invquantCr, [8 8], pIDCT);
+invDCT_cr = fix(invDCT_cr);
+
+
+% Reconstructed RGB Image from 4:2:0 subsampling
+linear_Y = uint8(invDCT_y);
+linear_Cb = uint8(zeros(MAXr, MAXc));
+linear_Cr = uint8(zeros(MAXr, MAXc));
+linear_Cb(1:2:end, 1:2:end) = invDCT_cb(1:end,1:end);
+linear_Cr(1:2:end, 1:2:end) = invDCT_cr(1:end,1:end);
+
+for row = 2:2:MAXr 
+    for col = 1:2:MAXc
+        
+        if(row ~= MAXr)
+            linear_Cb(row, col) = linear_Cb(row-1, col)/2 + linear_Cb(row+1, col)/2;
+            linear_Cr(row, col) = linear_Cr(row-1, col)/2 + linear_Cr(row+1, col)/2;
+        else 
+            linear_Cb(row, col) = linear_Cb(row-1, col);
+            linear_Cr(row, col) = linear_Cr(row-1, col);
+        end
+    end
+end
+
+
+for row = 1:MAXr
+    for col = 2:2:MAXc
+        if(col ~= MAXc)
+            linear_Cb(row, col) = linear_Cb(row, col-1)/2 + linear_Cb(row, col+1)/2;
+            linear_Cr(row, col) = linear_Cr(row, col-1)/2 + linear_Cr(row, col+1)/2;
+        else 
+            linear_Cb(row, col) = linear_Cb(row, col-1);
+            linear_Cr(row, col) = linear_Cr(row, col-1);
+        end
+    end
+end
+
+
+linear_Y_Cb_Cr = cat(3, linear_Y, linear_Cb, linear_Cr);
+
+% reconstructed image
+reconstructedImg = ycbcr2rgb(linear_Y_Cb_Cr);
+figure(4);
+imshow(reconstructedImg);
+
+% error
+ImgError = abs(y(:,:) - linear_Y(:,:));
+figure(5);
+imshow(ImgError);
+
+% compute outcome
+measured_Y = mean(ImgError(:).^2);
+outcome = 10 * log10(255^2/measured_Y);
+end
+
